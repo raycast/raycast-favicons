@@ -1,5 +1,7 @@
 # Raycast Favicons Service
 
+A service used in the Raycast app to fetch and serve favicons from websites.
+
 ## Setup
 
 Create a `.env` file:
