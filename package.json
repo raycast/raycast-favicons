@@ -1,0 +1,62 @@
+{
+  "name": "raycast-favicons",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:server dev:redis",
+    "dev:server": "node --inspect --watch -r ts-node/register -r tsconfig-paths/register src/app.ts",
+    "dev:redis": "redis-server",
+    "preinstall": "npm i -g pm2",
+    "postinstall": "node ./esbuild.config.js",
+    "start": "pm2-runtime start ecosystem.config.js --env production",
+    "test": "jest -b"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.529.1",
+    "@babel/preset-env": "^7.26.9",
+    "@types/express": "^4.17.21",
+    "aws-sdk": "^2.1573.0",
+    "babel-jest": "^29.7.0",
+    "cache-control-parser": "^2.0.5",
+    "content-type": "^1.0.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.18.2",
+    "htmlparser2": "^9.1.0",
+    "ioredis": "^5.3.2",
+    "pm2": "^5.3.1",
+    "psl": "^1.9.0",
+    "redis": "^4.6.13",
+    "rxjs": "^7.8.1",
+    "winston": "^3.17.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@babel/preset-typescript": "^7.27.0",
+    "@jest/globals": "^29.7.0",
+    "@types/content-type": "^1.1.8",
+    "@types/cors": "^2.8.17",
+    "@types/ioredis": "^5.0.0",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20",
+    "@types/private-ip": "^1.0.3",
+    "@types/psl": "^1.1.3",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/redis": "^4.0.11",
+    "esbuild": "^0.25.2",
+    "eslint": "^8",
+    "eslint-config-next": "14.0.4",
+    "jest": "^29.7.0",
+    "node-polyfill-webpack-plugin": "^3.0.0",
+    "npm-run-all": "^4.1.5",
+    "ts-jest": "^29.3.1",
+    "ts-loader": "^9.5.1",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}
