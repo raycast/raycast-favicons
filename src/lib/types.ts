@@ -21,6 +21,12 @@ export const DevicePixelRatioParam = z.union([
 ]);
 export type DevicePixelRatioParam = z.infer<typeof DevicePixelRatioParam>;
 
+export const ThemeParam = z.union([
+  z.literal("light"),
+  z.literal("dark"),
+]);
+export type ThemeParam = z.infer<typeof ThemeParam>;
+
 export const LinkIconType = z.union([
   z.literal("apple-touch-icon"),
   z.literal("apple-touch-icon-precomposed"),
@@ -54,6 +60,7 @@ const LinkIconSource = z.object({
   url: urlSchema(),
   data: z.boolean().optional(), // Is this an inline data reference?
   size: IconSize.optional(),
+  media: z.string().optional(), // Media query like "(prefers-color-scheme: dark)"
 });
 const ManifestIconSource = z.object({
   source: z.literal("manifest"),

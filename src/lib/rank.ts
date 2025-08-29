@@ -5,26 +5,86 @@ import {
   LinkIconType,
   ManifestIconSource,
   SizeParam,
+  ThemeParam,
 } from "./types";
+
+function filterSourcesByTheme(
+  sources: (LinkIconSource | ManifestIconSource)[],
+  theme?: ThemeParam
+): (LinkIconSource | ManifestIconSource)[] {
+  if (!theme) {
+    // If no theme preference, prefer icons without media queries
+    const noMediaIcons = sources.filter((source) => {
+      if (source.source === "link") {
+        return !source.media;
+      }
+      return true;
+    });
+    
+    // If we have icons without media queries, use those
+    if (noMediaIcons.length > 0) {
+      return noMediaIcons;
+    }
+    
+    // Otherwise return all icons
+    return sources;
+  }
+
+  // First, try to find icons matching the specific theme
+  const themeSpecificIcons = sources.filter((source) => {
+    if (source.source === "link" && source.media) {
+      // Check if media query matches theme preference
+      const mediaLower = source.media.toLowerCase();
+      if (theme === "dark") {
+        return mediaLower.includes("prefers-color-scheme") && mediaLower.includes("dark");
+      } else if (theme === "light") {
+        return mediaLower.includes("prefers-color-scheme") && mediaLower.includes("light");
+      }
+    }
+    return false;
+  });
+
+  // If we found theme-specific icons, use those
+  if (themeSpecificIcons.length > 0) {
+    return themeSpecificIcons;
+  }
+
+  // Otherwise, fall back to icons without media queries
+  const noMediaIcons = sources.filter((source) => {
+    if (source.source === "link") {
+      return !source.media;
+    }
+    return true;
+  });
+
+  if (noMediaIcons.length > 0) {
+    return noMediaIcons;
+  }
+
+  // If all else fails, return all icons
+  return sources;
+}
 
 export function bestReferencedIcon(
   sources: (LinkIconSource | ManifestIconSource)[],
   size: SizeParam,
-  dpr: DevicePixelRatioParam
+  dpr: DevicePixelRatioParam,
+  theme?: ThemeParam
 ) {
   switch (size) {
     case "favicon":
-      return bestFavicon(sources, dpr);
+      return bestFavicon(sources, dpr, theme);
     case "32":
-      return bestIcon(sources, 32 * dpr);
+      return bestIcon(sources, 32 * dpr, theme);
     case "64":
-      return bestIcon(sources, 64 * dpr);
+      return bestIcon(sources, 64 * dpr, theme);
   }
 }
 
 export function bestFavicon(
   sources: (LinkIconSource | ManifestIconSource)[],
-  dpr: DevicePixelRatioParam
+  dpr: DevicePixelRatioParam,
+  theme?: ThemeParam
 ): LinkIconSource | ManifestIconSource | null {
   const linkIconsWithType = (type: LinkIconType) =>
     sources.filter((icon) => {
@@ -37,14 +97,15 @@ export function bestFavicon(
 
   // Prioritise small icons for favicons since usually these are redrawn to look good at small sizes.
   const targetDimension = Math.min(16 * dpr, 32);
-  const icon = bestIcon(linkIconsWithType("icon"), targetDimension);
+  const icon = bestIcon(linkIconsWithType("icon"), targetDimension, theme);
   if (icon != null) {
     return icon;
   }
 
   const shortcutIcon = bestIcon(
     linkIconsWithType("shortcut icon"),
-    targetDimension
+    targetDimension,
+    theme
   );
   if (shortcutIcon != null) {
     return shortcutIcon;
@@ -52,7 +113,8 @@ export function bestFavicon(
 
   const appleTouchIcon = bestIcon(
     linkIconsWithType("apple-touch-icon"),
-    targetDimension
+    targetDimension,
+    theme
   );
   if (appleTouchIcon != null) {
     return appleTouchIcon;
@@ -60,7 +122,8 @@ export function bestFavicon(
 
   const appleTouchIconPrecomposed = bestIcon(
     linkIconsWithType("apple-touch-icon-precomposed"),
-    targetDimension
+    targetDimension,
+    theme
   );
   if (appleTouchIconPrecomposed != null) {
     return appleTouchIconPrecomposed;
@@ -71,8 +134,11 @@ export function bestFavicon(
 
 export function bestIcon(
   sources: (LinkIconSource | ManifestIconSource)[],
-  dimension: number
+  dimension: number,
+  theme?: ThemeParam
 ) {
+  // Filter sources based on theme preference
+  const themeFilteredSources = filterSourcesByTheme(sources, theme);
   // Where the delta (the amount the smallest dimension of the icon source is larger than our
   // target dimension) is positive, we want to prioritise values that are closest to but larger than
   // the target dimension. Where they are equal the rank will be +Infinity as we want to rank this
@@ -103,7 +169,7 @@ export function bestIcon(
     }
   };
 
-  const iconsWithRank = sources.map((source) => {
+  const iconsWithRank = themeFilteredSources.map((source) => {
     return { source, rank: rank(source) };
   });
 
@@ -120,21 +186,30 @@ type IconLoadResults = {
   page: IconLoadResult;
 };
 
-export function bestResult(url: URL, results: IconLoadResults): IconLoadResult {
-  const exception = ruleBasedDecision(url, results);
+export function bestResult(url: URL, results: IconLoadResults, theme?: ThemeParam): IconLoadResult {
+  const exception = ruleBasedDecision(url, results, theme);
   if (exception != null) {
     return exception;
   }
 
-  return defaultDecision(url, results);
+  return defaultDecision(url, results, theme);
 }
 
 function ruleBasedDecision(
   url: URL,
-  results: IconLoadResults
+  results: IconLoadResults,
+  theme?: ThemeParam
 ): IconLoadResult | undefined {
   const { favicon, page } = results;
   const foundIcons = foundIconsFromResults(results);
+
+  // For GitHub with theme preference, prefer SVG for tinting capability
+  if (url.host.toLowerCase().includes("github") && theme) {
+    // Check if we have an SVG icon from the page
+    if (page.icon && page.icon.image.blob.type === "image/svg+xml") {
+      return page;
+    }
+  }
 
   // Favicon for developer.apple.com looks better
   if (url.host.toLowerCase() === "developer.apple.com") {
@@ -145,8 +220,24 @@ function ruleBasedDecision(
   }
 }
 
-function defaultDecision(url: URL, results: IconLoadResults): IconLoadResult {
+function defaultDecision(url: URL, results: IconLoadResults, theme?: ThemeParam): IconLoadResult {
   const { favicon, page } = results;
+
+  // For sites that might have monochrome icons, prefer SVG when theme is specified
+  if (theme) {
+    // If we have both icons, check if one is SVG
+    if (page.icon && favicon.icon) {
+      const pageIsSVG = page.icon.image.blob.type === "image/svg+xml";
+      const faviconIsSVG = favicon.icon.image.blob.type === "image/svg+xml";
+      
+      // Prefer SVG for theme processing
+      if (pageIsSVG && !faviconIsSVG) {
+        return page;
+      } else if (faviconIsSVG && !pageIsSVG) {
+        return { icon: favicon.icon, foundIcons: foundIconsFromResults(results) };
+      }
+    }
+  }
 
   // Always favour the results from loading the original HTML page since this gives us
   // richer information.

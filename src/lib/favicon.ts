@@ -7,8 +7,10 @@ import {
   ManifestIconSource,
   ReferenceIconSource,
   SizeParam,
+  ThemeParam,
 } from "@/lib/types";
 import { fetchFirstValidImage$, fetchHTMLPage$ } from "./fetch";
+import { processImageForTheme } from "./imageProcessing";
 import { iconsFromManifest$ } from "./manifest";
 import { metadataFromHTMLPage$ } from "./metadata";
 import { bestReferencedIcon } from "./rank";
@@ -63,7 +65,8 @@ export function loadFaviconIco$(baseURL: URL): Observable<IconLoadResult> {
 export function loadFaviconFromHTMLPage$(
   url: URL,
   size: SizeParam,
-  dpr: DevicePixelRatioParam
+  dpr: DevicePixelRatioParam,
+  theme?: ThemeParam
 ): Observable<IconLoadResult> {
   const result$ = of(url).pipe(
     switchMap((url) => fetchHTMLPage$(url)),
@@ -119,7 +122,8 @@ export function loadFaviconFromHTMLPage$(
       const icon = bestReferencedIcon(
         [...linkIcons, ...manifestIcons],
         size,
-        dpr
+        dpr,
+        theme
       );
 
       if (icon == null) {

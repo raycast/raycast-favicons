@@ -32,6 +32,27 @@ Parameters:
 - `url`: encoded URL (e.g. encoded with `encodeURIComponent()`)
 - `size`: supports `favicon`, `32` or `64`
 - `dpr`: pass the scale factor along with required `size` in points to get icons that look good at e.g. `@2x` or `@3x`
+- `theme`: optional theme preference (`light` or `dark`). When specified, monochrome SVG icons will be tinted for better visibility
+
+## Testing Locally
+
+To test the favicon service locally:
+
+1. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+2. Open `test/index.html` in your browser to see examples of favicon fetching with different theme options
+
+3. Or use curl to test individual requests:
+   ```bash
+   # Fetch with light theme
+   curl "http://localhost:3000/favicon?url=https%3A%2F%2Fgithub.com&theme=light"
+   
+   # Fetch with dark theme  
+   curl "http://localhost:3000/favicon?url=https%3A%2F%2Fgithub.com&theme=dark"
+   ```
 
 ## Implementation
 
@@ -40,6 +61,7 @@ Parameters:
   - `/favicon.ico` (and `/favicon.ico` at any recursive subdomains)
   - `<link />` tags found from loading the page at the given URL
   - The website's web application manifest (if it exists)
+- Automatically tints monochrome SVG icons when a theme is specified for better visibility
 - Protection from abuse:
   - Utilises timeouts when loading all resources
   - Has data length limits for both images and other resources to prevent resource exhaustion attacks

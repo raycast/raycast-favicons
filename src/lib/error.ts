@@ -3,6 +3,7 @@ export type ErrorType =
   | "invalid_url"
   | "invalid_size"
   | "invalid_dpr"
+  | "invalid_theme"
   | "internal";
 
 export class APIError extends Error {

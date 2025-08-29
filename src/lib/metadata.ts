@@ -33,6 +33,7 @@ export function metadataFromHTMLPage$(
           const rel = attributes["rel"];
           const href = attributes["href"];
           const sizes = attributes["sizes"];
+          const media = attributes["media"];
 
           if (
             href == null ||
@@ -43,7 +44,7 @@ export function metadataFromHTMLPage$(
             return;
           }
 
-          const result = processLinkTag(rel, href, sizes, baseURL);
+          const result = processLinkTag(rel, href, sizes, media, baseURL);
           if (result == null) {
             return;
           }
@@ -112,6 +113,7 @@ function processLinkTag(
   rel: string,
   href: string,
   sizes: string,
+  media: string | undefined,
   baseURL: URL
 ):
   | { type: "icon"; source: LinkIconSource }
@@ -134,6 +136,7 @@ function processLinkTag(
           href: "", // Use empty href otherwise we will store the data twice
           data: true,
           size: parsedSizes || undefined,
+          media: media || undefined,
         },
       };
     } else {
@@ -149,6 +152,7 @@ function processLinkTag(
           url,
           href,
           size: parsedSizes || undefined,
+          media: media || undefined,
         },
       };
     }

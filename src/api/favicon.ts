@@ -5,6 +5,7 @@ import {
   loadFaviconFromHTMLPage$,
   loadFaviconIco$,
 } from "@/lib/favicon";
+import { processImageForTheme } from "@/lib/imageProcessing";
 import { bestResult } from "@/lib/rank";
 import { errorResponse, responseHeaders } from "@/lib/response";
 import {
@@ -14,6 +15,7 @@ import {
   IconSource,
   Services,
   SizeParam,
+  ThemeParam,
   allSizes,
 } from "@/lib/types";
 import { isValidURL, parseURL } from "@/lib/url";
@@ -41,24 +43,31 @@ export async function getFavicon(
   const urlParam$ = getURLParam$(url);
   const sizeParam$ = getSizeParam$(url);
   const dprParam$ = getDevicePixelRatioParam$(url);
+  const themeParam$ = getThemeParam$(url);
   const validatedURL$ = urlParam$.pipe(switchMap(parsedAndValidatedURL$));
   const params$ = combineLatest([
     urlParam$,
     validatedURL$,
     sizeParam$,
     dprParam$,
+    themeParam$,
   ]).pipe(
-    map(([urlParam, validatedURL, size, dpr]) => ({
+    map(([urlParam, validatedURL, size, dpr, theme]) => ({
       url: validatedURL,
       urlParam,
       size,
       dpr: dpr || 1,
+      theme,
     }))
   );
 
   const cachedImage$ = params$.pipe(
     switchMap(({ url, size, dpr }) => {
       const key = { url, size, dpr };
+      // Skip cache in development if Redis is not available
+      if (process.env.NODE_ENV === 'development' && !redis) {
+        return of(null);
+      }
       return from(getCachedImage(key, redis));
     }),
     share()
@@ -91,9 +100,17 @@ export async function getFavicon(
           uncachedFaviconResponse$(params, services, defer),
         ])
       ),
-      tap(async ([{ size, dpr, url }, result]) => {
+      tap(async ([{ size, dpr, url, theme }, result]) => {
         if (result.found) {
-          const { blob, expiry } = result;
+          let { blob, expiry } = result;
+          
+          // Apply theme-based processing if needed
+          try {
+            blob = await processImageForTheme(blob, theme, url);
+          } catch (error) {
+            console.error('Error processing image for theme:', error);
+          }
+          
           res.type(blob.type);
           const buffer = await blob.arrayBuffer();
           res.set(responseHeaders({ size: blob.size, expiry }));
@@ -127,15 +144,17 @@ function cachedFaviconResponse$(
   const { redis } = services;
   return combineLatest([of(params), of(icon)]).pipe(
     tap(([params, { objectKey }]) => {
-      defer(
-        setMetadataPartial(
-          params,
-          {
-            lastAccess: new Date(),
-          },
-          redis
-        )
-      );
+      if (redis) {
+        defer(
+          setMetadataPartial(
+            params,
+            {
+              lastAccess: new Date(),
+            },
+            redis
+          )
+        );
+      }
     }),
     switchMap(([_, cachedImage]) => {
       const { objectKey } = cachedImage;
@@ -146,13 +165,13 @@ function cachedFaviconResponse$(
 }
 
 function uncachedFaviconResponse$(
-  params: { url: URL; size: SizeParam; dpr: DevicePixelRatioParam },
+  params: { url: URL; size: SizeParam; dpr: DevicePixelRatioParam; theme?: ThemeParam },
   services: Services,
   defer: (work: Promise<any>) => void
 ): Observable<{ found: true; blob: Blob; expiry: Date } | { found: false }> {
   const loadResult$ = of(params).pipe(
-    switchMap(({ url, size, dpr }) =>
-      loadIconsForValidatedURL$(url, size, dpr)
+    switchMap(({ url, size, dpr, theme }) =>
+      loadIconsForValidatedURL$(url, size, dpr, theme)
     ),
     share()
   );
@@ -185,20 +204,21 @@ function uncachedFaviconResponse$(
 function loadIconsForValidatedURL$(
   url: URL,
   size: SizeParam,
-  dpr: DevicePixelRatioParam
+  dpr: DevicePixelRatioParam,
+  theme?: ThemeParam
 ): Observable<IconLoadResult> {
-  const results$ = of({ url, size }).pipe(
-    switchMap(({ url, size }) =>
+  const results$ = of({ url, size, theme }).pipe(
+    switchMap(({ url, size, theme }) =>
       combineLatest([
         loadFaviconIco$(url),
-        loadFaviconFromHTMLPage$(url, size, dpr),
+        loadFaviconFromHTMLPage$(url, size, dpr, theme),
       ])
     )
   );
 
-  return combineLatest([of(url), results$]).pipe(
-    map(([url, [favicon, page]]) =>
-      bestResult(url, { favicon: favicon, page: page })
+  return combineLatest([of(url), of(theme), results$]).pipe(
+    map(([url, theme, [favicon, page]]) =>
+      bestResult(url, { favicon: favicon, page: page }, theme)
     )
   );
 }
@@ -267,6 +287,27 @@ export function getDevicePixelRatioParam$(url: URL) {
     }),
     catchError(() => {
       throw makeInternalError();
+    })
+  );
+}
+
+export function getThemeParam$(url: URL) {
+  return of(url).pipe(
+    map((urlString) => new URL(urlString)),
+    map((url) => {
+      const param = url.searchParams.get("theme");
+      if (param == null) {
+        return undefined;
+      }
+
+      return ThemeParam.parse(param);
+    }),
+    catchError(() => {
+      throw new APIError(
+        400,
+        "invalid_theme",
+        "Invalid 'theme' query parameter. Valid values are 'light' or 'dark'"
+      );
     })
   );
 }
