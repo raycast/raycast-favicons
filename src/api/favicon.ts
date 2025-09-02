@@ -62,8 +62,8 @@ export async function getFavicon(
   );
 
   const cachedImage$ = params$.pipe(
-    switchMap(({ url, size, dpr }) => {
-      const key = { url, size, dpr };
+    switchMap(({ url, size, dpr, theme }) => {
+      const key = { url, size, dpr, theme };
       // Skip cache in development if Redis is not available
       if (process.env.NODE_ENV === 'development' && !redis) {
         return of(null);
@@ -136,7 +136,7 @@ export async function getFavicon(
 }
 
 function cachedFaviconResponse$(
-  params: { url: URL; size: SizeParam; dpr: DevicePixelRatioParam },
+  params: { url: URL; size: SizeParam; dpr: DevicePixelRatioParam; theme?: ThemeParam },
   icon: IconMetadata,
   services: Services,
   defer: (work: Promise<any>) => void
@@ -165,13 +165,18 @@ function cachedFaviconResponse$(
 }
 
 function uncachedFaviconResponse$(
-  params: { url: URL; size: SizeParam; dpr: DevicePixelRatioParam; theme?: ThemeParam },
+  params: {
+    url: URL;
+    size: SizeParam;
+    dpr: DevicePixelRatioParam;
+    theme?: ThemeParam;
+  },
   services: Services,
   defer: (work: Promise<any>) => void
 ): Observable<{ found: true; blob: Blob; expiry: Date } | { found: false }> {
   const loadResult$ = of(params).pipe(
     switchMap(({ url, size, dpr, theme }) =>
-      loadIconsForValidatedURL$(url, size, dpr, theme)
+      loadIconsForValidatedURL$(url, size, dpr, theme),
     ),
     share()
   );
@@ -184,10 +189,10 @@ function uncachedFaviconResponse$(
 
   return merge(
     combineLatest([foundIcon$, of(params)]).pipe(
-      switchMap(([{ icon, foundIcons }, { url, size, dpr }]) => {
+      switchMap(([{ icon, foundIcons }, { url, size, dpr, theme }]) => {
         const { image } = icon;
         const { blob, expiry } = image;
-        const key = { url, size, dpr };
+        const key = { url, size, dpr, theme };
         defer(cacheFavicon(key, icon, services));
         return of({ found: true, blob, expiry } as const);
       })

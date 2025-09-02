@@ -4,6 +4,7 @@ import {
   IconSource,
   Services,
   SizeParam,
+  ThemeParam,
 } from "@/lib/types";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import Redis from "ioredis";
@@ -12,7 +13,7 @@ import { Icon, IconImage } from "./types";
 import { parseBase64DataURL } from "./url";
 
 function redisCacheKey(key: CacheKey) {
-  const { url, size, dpr } = key;
+  const { url, size, dpr, theme } = key;
   let host = url.hostname;
 
   const sizeComponent = () => {
@@ -27,7 +28,7 @@ function redisCacheKey(key: CacheKey) {
   };
 
   // Use | as a separator because it's not a valid character in a URL.
-  const contents = [host, sizeComponent()]
+  const contents = [host, sizeComponent(), theme]
     .filter((component) => component != null)
     .join("|");
 
@@ -79,6 +80,7 @@ export type CacheKey = {
   url: URL;
   size: SizeParam;
   dpr: DevicePixelRatioParam;
+  theme?: ThemeParam;
 };
 
 export async function setMetadata(
