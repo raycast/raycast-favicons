@@ -32,12 +32,14 @@ function redisCacheKey(key: CacheKey) {
     .filter((component) => component != null)
     .join("|");
 
+  console.log(sha256(contents));
+
   return sha256(contents);
 }
 
 export async function getCachedImage(
   key: CacheKey,
-  redis: Redis
+  redis: Redis,
 ): Promise<IconMetadata | null> {
   if (process.env["RAYCAST_IGNORE_CACHE"] === "true") {
     return null;
@@ -60,7 +62,7 @@ export async function getCachedImage(
 
 export async function getMetadata(
   key: CacheKey,
-  redis: Redis
+  redis: Redis,
 ): Promise<IconMetadata | null> {
   const redisKey = redisCacheKey(key);
   const payload = await redis.hgetall(redisKey);
@@ -86,7 +88,7 @@ export type CacheKey = {
 export async function setMetadata(
   key: CacheKey,
   metadata: IconMetadata,
-  redis: Redis
+  redis: Redis,
 ) {
   const redisKey = redisCacheKey(key);
   await redis.hset(redisKey, metadata);
@@ -95,7 +97,7 @@ export async function setMetadata(
 export async function setMetadataPartial(
   key: CacheKey,
   partial: Partial<IconMetadata>,
-  redis: Redis
+  redis: Redis,
 ) {
   const redisKey = redisCacheKey(key);
   await redis.hset(redisKey, partial);
@@ -112,7 +114,7 @@ export async function getStoredObject(key: string, services: Services) {
       new GetObjectCommand({
         Bucket: bucket,
         Key: key,
-      })
+      }),
     );
 
     // Memory leak in S3 SDK if you don't consume the body; workaround based on:
@@ -159,7 +161,7 @@ export async function getOrStoreObject(blob: Blob, services: Services) {
           } else {
             resolve();
           }
-        }
+        },
       );
     });
   } catch (error) {
@@ -172,7 +174,7 @@ export async function getOrStoreObject(blob: Blob, services: Services) {
 export async function cacheFavicon(
   key: CacheKey,
   icon: Icon,
-  services: Services
+  services: Services,
 ) {
   const { image, source } = icon;
   const { expiry } = image;
@@ -190,14 +192,14 @@ export async function cacheFavicon(
       expiry,
       lastAccess: new Date(),
     },
-    redis
+    redis,
   );
 }
 
 async function cacheImage(
   image: IconImage,
   source: IconSource,
-  services: Services
+  services: Services,
 ): Promise<{ objectKey: string } | null> {
   if (source.source === "link" && source.data) {
     const parsed = parseBase64DataURL(source.url);
