@@ -32,8 +32,6 @@ function redisCacheKey(key: CacheKey) {
     .filter((component) => component != null)
     .join("|");
 
-  console.log(sha256(contents));
-
   return sha256(contents);
 }
 
