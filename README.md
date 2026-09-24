@@ -43,3 +43,14 @@ Parameters:
 - Protection from abuse:
   - Utilises timeouts when loading all resources
   - Has data length limits for both images and other resources to prevent resource exhaustion attacks
+  - Refuses to connect to loopback, private, link-local and other non-public addresses, including after DNS resolution and redirects (`src/lib/network.ts`)
+
+## Deployment
+
+The service runs on AWS ECS Express behind CloudFront (`api.ray.so`); cached icons are served from S3 through `favicon.ray.so`.
+
+- **Staging** (`raycast-favicons-staging`): deployed on every push to `main` by `.github/workflows/deploy_aws.yml`.
+- **Production** (`raycast-favicons-production`): deployed by hand from `main` with `.github/workflows/deploy_aws_production.yml` (Actions > Deploy AWS Favicons Production > Run workflow), after the commit is verified on staging.
+- Configuration lives in SSM Parameter Store under `/raycast-favicons/<env>` (`raycast-infra/scripts/config`). S3 access comes from the ECS task role; no AWS keys are configured.
+- Infrastructure (ECR, IAM roles, log groups, ElastiCache, CloudFront, deploy roles) is owned by `raycast-infra`.
+- Health check: `GET /up`.

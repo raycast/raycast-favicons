@@ -6,7 +6,8 @@ import { Services } from "./types";
 
 export function connectServices(): Services {
   const redisURL = process.env.REDIS_URL as string;
-  logger.info(`Connecting to redis at '${redisURL}'`);
+  // Log the host only: the URL carries the Redis password.
+  logger.info(`Connecting to redis at '${redactedHost(redisURL)}'`);
 
   const options: RedisOptions =
     process.env.NODE_ENV === "development"
@@ -25,4 +26,13 @@ export function connectServices(): Services {
   const s3Legacy = new S3Legacy({ region: s3Region });
 
   return { redis, s3, s3Legacy };
+}
+
+function redactedHost(url: string | undefined) {
+  try {
+    const { protocol, host } = new URL(url ?? "");
+    return `${protocol}//${host}`;
+  } catch {
+    return "(unparseable REDIS_URL)";
+  }
 }

@@ -1,0 +1,172 @@
+name: Deploy AWS Favicons Production
+
+# Production deploy of raycast-favicons to AWS ECS Express, started by hand from main
+# (Actions > Deploy AWS Favicons Production > Run workflow) once the same commit has
+# been verified on staging. The repo has no release branch: main is the only branch
+# and changes are rare. Serves api.ray.so once raycast-infra flips faviconsProductionBackend
+# to "aws"; until then it runs in shadow.
+#
+#   - Configuration comes from SSM Parameter Store (/raycast-favicons/production), managed
+#     with raycast-infra/scripts/config and read by the task definition at task start.
+#     REDIS_URL there is the production ElastiCache (Valkey) cluster owned by raycast-infra.
+#   - S3 access (bucket raycast-favicon-service) comes from the task role, not keys.
+#   - Supporting resources (ECR, roles, log group, Redis, CloudFront, deploy role) are
+#     owned by raycast-infra (services/favicons-service.ts and friends).
+#   - scripts/deploy-aws-express.sh and scripts/promote-aws-image.sh are shared with
+#     raycast-backend / raycast-release-api and keep their BACKEND_* knobs.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-aws-favicons-production
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: raycast-favicons
+  NODE_VERSION: "22.22.2"
+  ECS_CLUSTER: default
+  SSM_PREFIX: /raycast-favicons/production
+  SERVICE_NAME: raycast-favicons-production
+
+jobs:
+  build-push-image:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_PRODUCTION_DEPLOY_ROLE_ARN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push image
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          build-args: |
+            NODE_VERSION=${{ env.NODE_VERSION }}
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Skip notice
+        if: env.AWS_DEPLOY_ROLE_ARN == ''
+        run: echo "AWS_DEPLOY_ROLE_ARN not set; skipping AWS build/deploy."
+
+  deploy-web:
+    name: Deploy web service
+    needs: [build-push-image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_PRODUCTION_DEPLOY_ROLE_ARN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ECS Express commands require AWS CLI v2.34+.
+      - name: Ensure AWS CLI supports ECS Express
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        run: |
+          if ! aws ecs create-express-gateway-service help >/dev/null 2>&1; then
+            echo "Installing latest AWS CLI v2 (current: $(aws --version 2>&1))"
+            curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+            unzip -q /tmp/awscliv2.zip -d /tmp
+            sudo /tmp/aws/install --update
+          fi
+          aws --version
+
+      - name: Deploy web service
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        env:
+          BACKEND_SSM_PREFIX: ${{ env.SSM_PREFIX }}
+          BACKEND_ENV_TAG: production
+          BACKEND_USAGE_TAG: favicons
+          BACKEND_CONTAINER_PORT: "3000"
+          # Dependency-free liveness route in src/app.ts.
+          BACKEND_HEALTH_CHECK_PATH: /up
+          # One Node process per task, mostly waiting on other sites (p90 ~5s, the fetch
+          # timeout): 1 vCPU / 2 GB, scaled on request count. Heroku ran 4 x Standard-2X
+          # at ~700 req/min, ~175 per dyno; 500 per task leaves headroom before scale-out.
+          BACKEND_CPU: "1024"
+          BACKEND_MEMORY: "2048"
+          BACKEND_MIN_TASKS: "2"
+          BACKEND_MAX_TASKS: "6"
+          BACKEND_SCALING_METRIC: REQUEST_COUNT_PER_TARGET
+          BACKEND_SCALING_TARGET: "500"
+          # Most favicon lookups legitimately end in 404 (no icon found), which the
+          # generic Express rollback alarm counts as errors. Scope it to target 5XX.
+          BACKEND_ROLLBACK_ALARM_MODE: target-5xx
+          # Rollouts serve traffic once flipped: canary + bake like the other production services.
+          BACKEND_CANARY_BAKE_TIME_MINUTES: "3"
+          BACKEND_BAKE_TIME_MINUTES: "3"
+          BACKEND_ROLLOUT_INITIAL_DELAY: "10"
+          BACKEND_ROLLOUT_POLL_INTERVAL: "10"
+        run: |
+          bash scripts/deploy-aws-express.sh \
+            "${AWS_REGION}" "${ECS_CLUSTER}" "${SERVICE_NAME}" \
+            "${ECR_REPOSITORY}" "sha-${{ github.sha }}"
+
+      - name: Skip notice
+        if: env.AWS_DEPLOY_ROLE_ARN == ''
+        run: echo "AWS_DEPLOY_ROLE_ARN not set; skipping ECS deploy."
+
+  promote-image:
+    name: Promote deployed image
+    needs: [deploy-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_PRODUCTION_DEPLOY_ROLE_ARN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Promote successfully deployed image
+        if: env.AWS_DEPLOY_ROLE_ARN != ''
+        run: |
+          bash scripts/promote-aws-image.sh \
+            "${AWS_REGION}" "${ECR_REPOSITORY}" "sha-${{ github.sha }}" "production"
+
+      - name: Skip notice
+        if: env.AWS_DEPLOY_ROLE_ARN == ''
+        run: echo "AWS_DEPLOY_ROLE_ARN not set; skipping image promotion."
