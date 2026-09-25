@@ -5,6 +5,7 @@ import { getFavicon } from "./api/favicon";
 import logger from "./lib/logger";
 import { installOutboundFetchGuard } from "./lib/network";
 import { connectServices } from "./lib/services";
+import { startMemoryWatchdog, watchdogOptionsFromEnv } from "./lib/watchdog";
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -25,8 +26,15 @@ installOutboundFetchGuard();
 
 app.use(cors());
 
-// Dependency-free liveness route for the load balancer health check.
+const watchdog = startMemoryWatchdog(watchdogOptionsFromEnv());
+
+// Liveness route for the load balancer health check. Reports 503 while the memory
+// watchdog drains the process, so the ALB stops routing to it before it exits.
 app.get("/up", (_req, res) => {
+  if (watchdog.isDraining()) {
+    res.status(503).json({ status: "draining" });
+    return;
+  }
   res.status(200).json({ status: "up" });
 });
 

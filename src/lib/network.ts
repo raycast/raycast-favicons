@@ -138,6 +138,48 @@ export function guardedConnector(): buildConnector.connector {
   };
 }
 
-export function installOutboundFetchGuard() {
-  setGlobalDispatcher(new Agent({ connect: guardedConnector() }));
+// undici's Agent keeps one connection pool per origin in an internal map and only empties
+// that map in close()/destroy(): idle origins are never evicted. This service fetches
+// thousands of distinct hosts an hour, so the map (and heap) grows until the process
+// runs out of memory -- every few hours on ECS. On Heroku, pm2's max_memory_restart hid
+// it. The dispatcher is therefore replaced on a timer: new requests go to a fresh Agent,
+// and the previous one is closed gracefully (in-flight requests finish first, then its
+// pools are released). Memory stays bounded by roughly one interval's worth of origins.
+export const DISPATCHER_ROTATION_MS = 60_000;
+
+export interface Closable {
+  close(): Promise<void>;
+}
+
+export function rotatingDispatcher<T extends Closable>(
+  create: () => T,
+  install: (dispatcher: T) => void,
+  intervalMs: number = DISPATCHER_ROTATION_MS
+) {
+  let current = create();
+  install(current);
+
+  const rotate = () => {
+    const previous = current;
+    current = create();
+    install(current);
+    previous.close().catch(() => {});
+  };
+
+  const timer = setInterval(rotate, intervalMs);
+  timer.unref();
+
+  return {
+    current: () => current,
+    rotate,
+    stop: () => clearInterval(timer),
+  };
+}
+
+export function installOutboundFetchGuard(intervalMs: number = DISPATCHER_ROTATION_MS) {
+  return rotatingDispatcher(
+    () => new Agent({ connect: guardedConnector() }),
+    (agent) => setGlobalDispatcher(agent),
+    intervalMs
+  );
 }
