@@ -23,8 +23,13 @@ RUN node esbuild.config.js \
 
 FROM node:${NODE_VERSION}-slim
 WORKDIR /app
+# UV_THREADPOOL_SIZE: every favicon lookup resolves a new, often slow or dead, hostname
+# via dns.lookup, which runs on libuv's thread pool (4 threads by default). With 4
+# threads, slow lookups queue up and delay healthy ones (median ~3.6s on ECS vs ~0.7s on
+# Heroku's 4 dynos x 4 threads).
 ENV NODE_ENV=production \
-  PORT=3000
+  PORT=3000 \
+  UV_THREADPOOL_SIZE=64
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
