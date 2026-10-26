@@ -28,7 +28,7 @@ permissions:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: raycast-favicons
-  NODE_VERSION: "22.22.2"
+  NODE_VERSION: "22.23.4"
   ECS_CLUSTER: default
   SSM_PREFIX: /raycast-favicons/staging
   SERVICE_NAME: raycast-favicons-staging
@@ -66,6 +66,10 @@ jobs:
         with:
           context: .
           push: true
+          # A single image manifest instead of an index with a provenance attestation:
+          # Inspector can only tell that a plain image is in use, and stops rescanning
+          # an index's image 30 days after the push even while ECS still runs it.
+          provenance: false
           build-args: |
             NODE_VERSION=${{ env.NODE_VERSION }}
           tags: |
