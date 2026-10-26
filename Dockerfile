@@ -1,17 +1,16 @@
 # syntax=docker/dockerfile:1
 #
 # raycast-favicons container image for AWS ECS Express (raycast-infra,
-# services/favicons-service.ts). Heroku (heroku/nodejs buildpack + pm2) keeps running
-# until the api.ray.so CloudFront origin is flipped; this image replaces both.
+# services/favicons-service.ts).
 #
-#   - npm ci runs with --ignore-scripts: `preinstall` installs pm2 globally and
-#     `postinstall` bundles, neither of which belongs in an image build. The bundle is
-#     built explicitly below (same esbuild config as Heroku's postinstall).
+#   - npm ci runs with --ignore-scripts: `postinstall` bundles, which doesn't belong in
+#     the dependency layer. The bundle is built explicitly below with the same esbuild
+#     config.
 #   - The bundle keeps packages external, so production dependencies ship alongside it.
 #   - No pm2: ECS restarts the task if the process exits, and the ALB health check
 #     (/up) replaces pm2's supervision. One Node process per task.
 
-ARG NODE_VERSION=22.22.2
+ARG NODE_VERSION=22.23.4
 
 FROM node:${NODE_VERSION}-slim AS build
 WORKDIR /app

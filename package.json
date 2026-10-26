@@ -6,9 +6,8 @@
     "dev": "npm-run-all --parallel dev:server dev:redis",
     "dev:server": "node --inspect --watch -r ts-node/register -r tsconfig-paths/register src/app.ts",
     "dev:redis": "redis-server",
-    "preinstall": "npm i -g pm2",
     "postinstall": "node ./esbuild.config.js",
-    "start": "pm2-runtime start ecosystem.config.js --env production",
+    "start": "node --enable-source-maps dist/bundle.js",
     "test": "jest -b"
   },
   "dependencies": {
@@ -24,7 +23,6 @@
     "express": "^4.18.2",
     "htmlparser2": "^9.1.0",
     "ioredis": "^5.3.2",
-    "pm2": "^5.3.1",
     "psl": "^1.9.0",
     "redis": "^4.6.13",
     "rxjs": "^7.8.1",
