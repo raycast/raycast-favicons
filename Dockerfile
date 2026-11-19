@@ -9,8 +9,11 @@
 #   - The bundle keeps packages external, so production dependencies ship alongside it.
 #   - No pm2: ECS restarts the task if the process exits, and the ALB health check
 #     (/up) replaces pm2's supervision. One Node process per task.
+#   - The runtime image ships without npm, npx and corepack. Nothing runs them there
+#     (the task starts `node` directly), and they bring their own vendored packages
+#     that Inspector reports against the image.
 
-ARG NODE_VERSION=22.23.4
+ARG NODE_VERSION=22.23.5
 
 FROM node:${NODE_VERSION}-slim AS build
 WORKDIR /app
@@ -22,6 +25,8 @@ RUN node esbuild.config.js \
 
 FROM node:${NODE_VERSION}-slim
 WORKDIR /app
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+  /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 # UV_THREADPOOL_SIZE: every favicon lookup resolves a new, often slow or dead, hostname
 # via dns.lookup, which runs on libuv's thread pool (4 threads by default). With 4
 # threads, slow lookups queue up and delay healthy ones (median ~3.6s on ECS vs ~0.7s on
