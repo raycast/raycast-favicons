@@ -12,10 +12,14 @@
 #   - The runtime image ships without npm, npx and corepack. Nothing runs them there
 #     (the task starts `node` directly), and they bring their own vendored packages
 #     that Inspector reports against the image.
+#   - Both stages use Debian 13 (trixie). Debian 12, the default for
+#     `node:<version>-slim`, has no fixes for the util-linux, zlib and glibc
+#     vulnerabilities Inspector reports, and the runtime stage runs `apt-get upgrade` so
+#     security updates published after the base image was built (zlib, for one) land.
 
 ARG NODE_VERSION=22.23.5
 
-FROM node:${NODE_VERSION}-slim AS build
+FROM node:${NODE_VERSION}-trixie-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
@@ -23,10 +27,13 @@ COPY . .
 RUN node esbuild.config.js \
   && npm prune --omit=dev --ignore-scripts --no-audit --no-fund
 
-FROM node:${NODE_VERSION}-slim
+FROM node:${NODE_VERSION}-trixie-slim
 WORKDIR /app
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
-  /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+RUN apt-get update -qq \
+  && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/* \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 # UV_THREADPOOL_SIZE: every favicon lookup resolves a new, often slow or dead, hostname
 # via dns.lookup, which runs on libuv's thread pool (4 threads by default). With 4
 # threads, slow lookups queue up and delay healthy ones (median ~3.6s on ECS vs ~0.7s on
